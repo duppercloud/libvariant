@@ -1,0 +1,10 @@
+
+syntax: regexp
+\.swp
+\.swo
+\.o
+\.a
+\.so
+\.la
+\._
+build
