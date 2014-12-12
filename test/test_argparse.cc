@@ -140,6 +140,7 @@ int main(int argc, char **argv) {
 	args.AddOption("list[2]", 0, "list2", "List two option");
 
 	args.Merge(OtherConfig());
+	args.AddConfigDefaults();
 
 	args.Validate();
 

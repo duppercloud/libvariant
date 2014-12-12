@@ -20,6 +20,7 @@
  */
 
 #include <Variant/SchemaLoader.h>
+#include <Variant/Extensions.h>
 #include <regex.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -91,20 +92,6 @@ namespace libvariant {
 		const char *e = c + uri.size();
 		while (c != e) {
 			switch (*c) {
-			case '~':
-				++c;
-				if (c != e) {
-					if (*c == '0') {
-						ret.append("~");
-					} else if (*c == '1') {
-						ret.append("/");
-					} else {
-						ret.append("~");
-						ret.append(c, 1);
-					}
-					++c;
-				}
-				break;
 			case '%':
 				if (c + 1 == e || c + 2 == e) {
 					ret.append(c);
@@ -158,26 +145,7 @@ namespace libvariant {
 		}
 
 		Variant schema = iter->second;
-		if (fragment == "") {
-			return schema;
-		} else if (fragment[0] != '/') {
-			return Variant::NullType;
-		}
-		std::string::size_type index = 1; // First char is '/'
-		std::string::size_type nindex;
-		do {
-			nindex =  fragment.find('/', index);
-			std::string component = UnescapeURI(fragment.substr(index, nindex - index));
-			index = nindex + 1;
-
-			if (schema.Contains(component)) {
-				schema = schema[component];
-			} else {
-				schema = Variant::NullType;
-				break;
-			}
-		} while (nindex < fragment.size());
-		return schema;
+		return JSONPointerLookup(UnescapeURI(fragment), schema);
 	}
 
 	std::map<std::string, Variant> SchemaLoader::AddSchema(const std::string &uri, Variant schema) {
@@ -229,7 +197,15 @@ namespace libvariant {
 "(\\?[^#]*)?" // SEARCH
 "(#[^[:space:]]*)?[[:space:]]*$" // HASH
 					, REG_EXTENDED);
-			if (ret) { fprintf(stderr, "ParseURI regex failed to compile.\n"); abort(); }
+			if (ret) {
+				std::vector<char> buffer(8192);
+				regerror(ret, &regex, &buffer[0], buffer.size());
+				std::ostringstream oss;
+				oss << "libvariant library initialization failure: Failed to initialize schema uri handling regex with error: "
+					<< &buffer[0];
+				fputs(oss.str().c_str(), stderr);
+				throw std::runtime_error(oss.str());
+			}
 		}
 		~RegexHelper() { regfree(&regex); }
 		regex_t regex;

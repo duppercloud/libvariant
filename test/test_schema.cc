@@ -115,12 +115,32 @@ int TestFile(const std::string &testfile) {
 		Variant data = i->At("data");
 		Variant schema = i->At("schema");
 		bool fail = i->Get("fail", false).AsBool();
+		bool exception = i->Get("exception", false).AsBool();
 		cout << "Running " << (fail ? "negative " : "") << "test \"" << name << "\" ";
 		cout.flush();
 		SchemaLoader loader;
 		std::vector<std::string> missing;
 		loader.SetMissingHandler(&TestMissingHandler, &missing);
-		SchemaResult result = SchemaValidate(schema, data, &loader);
+		SchemaResult result;
+		try {
+			result = SchemaValidate(schema, data, &loader);
+		} catch (const std::exception &e) {
+			if (exception) {
+				cout << " PASS with exception\n";
+				cout << e.what() << endl;
+				continue;
+			}
+			cout << "\n!!!!FAIL!!!!\n";
+			cout << e.what() << endl;
+			++ret;
+			abort();
+		}
+		if (exception) {
+			cout << "\n!!!!FAIL!!!!\n";
+			cout << "Excepted SchemaValidate to throw!\n";
+			++ret;
+			abort();
+		}
 
 		for (unsigned k = 0; k < missing.size(); ++k) {
 			bool found = false;

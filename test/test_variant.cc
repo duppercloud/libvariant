@@ -367,6 +367,13 @@ void TestRefReassign() {
 	ref = 5;
 	ASSERT(v1.GetPath("a/b/c") == 1);
 	ASSERT(v1.GetPath("a/b/d") == 5);
+
+	VariantRef ref1 = v1.AtPath("foo/bar");
+	VariantRef ref2 = v1.AtPath("foo").AtPath("bar");
+	VariantPrint(v1);
+	ASSERT(!v1.HasPath("foo"));
+	ASSERT(!v1.HasPath("foo/bar"));
+
 }
 
 void TestProxy() {

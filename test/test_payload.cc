@@ -94,6 +94,18 @@ void TestEmit() {
 	BlobPtr b = Blob::CreateCopy(TESTPAYLOAD, TESTPAYLOAD_LEN);
 	v.SetPath("other/data", b);
 	SerializeWithPayload(cout.rdbuf(), v, SERIALIZE_JSON, params);
+	cout << "\n--------------------------------------------------------------------------------\n";
+	params.Set("ignore_payload", true);
+	SerializeWithPayload(cout.rdbuf(), v, SERIALIZE_JSON, params);
+	cout << "\n--------------------------------------------------------------------------------\n";
+	params.Set("ignore_payload", false);
+	params.Set("payload_length", 5);
+	SerializeWithPayload(cout.rdbuf(), v, SERIALIZE_JSON, params);
+	cout << "\n--------------------------------------------------------------------------------\n";
+	params.Set("ignore_payload", true);
+	params.Set("payload_length", 5);
+	SerializeWithPayload(cout.rdbuf(), v, SERIALIZE_JSON, params);
+	cout << "\n\n";
 }
 
 int main(int argc, char **argv) {

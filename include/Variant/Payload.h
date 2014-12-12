@@ -43,6 +43,18 @@ namespace libvariant {
 #define VARIANT_PAYLOAD_DATA_PATH "payload/data"
 #define VARIANT_BUNDLE_PAYLOAD_DATA_PATH "payload.data"
 	// The defaults are the values for compatibility with the bundle format.
+	//
+	// Serialize only parameters:
+	// "ignore_payload": true|false (default false)
+	// Don't output the payload, only the header, alignment and null byte.
+	// If the payload exists in the Variant, use the length for the payload length
+	// value, if not look in parameters for the payload length value, if not there
+	// look in the Variant for the payload length.
+	// "payload_length": num
+	// Payload length override, put this number in as the payload length
+	// regardless of what size the blob is.
+	// Note that unless ingnore_payload is true, the emitter will try to output the whole
+	// payload (and no more) regardless of what this number is.
 
 	void SerializeWithPayload(shared_ptr<EmitterOutput> out, Variant v, SerializeType type,
 		   	Variant params = Variant::NullType);

@@ -171,6 +171,7 @@ namespace libvariant {
 			virtual void Copy(const Data *that, Data *other) const = 0;
 			virtual void Assign(const Data *that, Data *other) const;
 			virtual void MakeRef(const Data *that, Data *ref) const;
+			virtual void MakeProxy(Data *that, Data *ref, Path::const_iterator b, Path::const_iterator e) const;
 			virtual Variant::Type_t GetType(const Data *that) const = 0;
 			virtual bool AsBool(const Data *that) const;
 			virtual long double AsLongDouble(const Data *that) const;
@@ -256,6 +257,8 @@ namespace libvariant {
 		void VTable::MakeRef(const Data *that, Data *ref) const {
 			RefInit(ref, that);
 		}
+		void VTable::MakeProxy(Data *that, Data *ref, Path::const_iterator b, Path::const_iterator e) const
+		{ ProxyInit(ref, that, b, e); }
 
 		bool VTable::AsBool(const Data *that) const
 		{ throw UnableToConvertError(that->vtable->GetType(that), "a bool"); }
@@ -380,12 +383,12 @@ namespace libvariant {
 		VariantRef VTable::GetPathRef(Data *that, Path::const_iterator b,
 				Path::const_iterator e, Variant *def) const
 		{
-			if (b == e) { return VariantRef(*that->vtable->Resolve(that)); }
+			if (b == e) { return VariantRef(*GetVar(that)); }
 			Variant *ref = 0;
 			ref = GetPathElem(that, *b, false);
 			if (!ref) {
 				if (!def) {
-					return VariantRef(*that->vtable->Resolve(that), b, e);
+					return VariantRef(*GetVar(that), b, e);
 				}
 				if (b + 1 == e) {
 					return GetRefPathElem(that, *b,  def);
@@ -1425,6 +1428,7 @@ namespace libvariant {
 			virtual void Copy(const Data *that, Data *other) const;
 			virtual void Assign(const Data *that, Data *other) const;
 			virtual void MakeRef(const Data *that, Data *ref) const;
+			virtual void MakeProxy(Data *that, Data *ref, Path::const_iterator b, Path::const_iterator e) const;
 			virtual Variant::Type_t GetType(const Data *that) const;
 			virtual bool AsBool(const Data *that) const;
 			virtual long double AsLongDouble(const Data *that) const;
@@ -1484,6 +1488,9 @@ namespace libvariant {
 
 		void Ref::MakeRef(const Data *that, Data *ref) const
 		{ CheckRef(that); that->ref->vtable->MakeRef(that->ref, ref); }
+
+		void Ref::MakeProxy(Data *that, Data *ref, Path::const_iterator b, Path::const_iterator e) const
+		{ CheckRef(that); that->ref->vtable->MakeProxy(that->ref, ref, b, e); }
 
 		VariantDefines::Type_t Ref::GetType(const Data *that) const
 		{ CheckRef(that); return that->ref->vtable->GetType(that->ref); }
@@ -1638,6 +1645,7 @@ namespace libvariant {
 			virtual void Copy(const Data *that, Data *other) const;
 			virtual void Assign(const Data *that, Data *other) const;
 			virtual void MakeRef(const Data *that, Data *ref) const;
+			virtual void MakeProxy(Data *that, Data *ref, Path::const_iterator b, Path::const_iterator e) const;
 			virtual Variant::Type_t GetType(const Data *that) const;
 			virtual bool AsBool(const Data *that) const;
 			virtual long double AsLongDouble(const Data *that) const;
@@ -1727,6 +1735,14 @@ namespace libvariant {
 		void Proxy::MakeRef(const Data *that, Data *ref) const {
 			CheckRef(that);
 			ProxyInit(ref, that->proxy->ref, that->proxy->path.begin(), that->proxy->path.end());
+		}
+
+		void Proxy::MakeProxy(Data *that, Data *ref, Path::const_iterator b, Path::const_iterator e) const
+		{
+			CheckRef(that);
+			Path newpath = that->proxy->path;
+			newpath.insert(newpath.end(), b, e);
+			ProxyInit(ref, that->proxy->ref, newpath.begin(), newpath.end());
 		}
 
 		VariantDefines::Type_t Proxy::GetType(const Data *that) const
@@ -1974,7 +1990,7 @@ namespace libvariant {
 
 	Variant::Variant(const RefTag &, Variant &o, Path::const_iterator b, Path::const_iterator e)
 	{
-		Internal::ProxyInit(this, &o, b, e);
+		o.vtable->MakeProxy(&o, this, b, e);
 	}
 
 	Variant::~Variant() {

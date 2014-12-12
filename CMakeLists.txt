@@ -31,7 +31,7 @@ option(LIBVARIANT_ENABLE_CURL "Enable cURL related functionality in the SchemaLo
 
 set(LIBVARIANT_MAJOR_VERSION 1)
 set(LIBVARIANT_MINOR_VERSION 0)
-set(LIBVARIANT_PATCH_VERSION 0)
+set(LIBVARIANT_PATCH_VERSION 1)
 set(LIBVARIANT_VERSION
 	  ${LIBVARIANT_MAJOR_VERSION}.${LIBVARIANT_MINOR_VERSION}.${LIBVARIANT_PATCH_VERSION})
    
@@ -233,6 +233,8 @@ install(FILES ${CMAKE_CURRENT_BINARY_DIR}/include/Variant/Config.h DESTINATION
 
 # Am I the root CMakeLists.txt?
 if(${CMAKE_SOURCE_DIR} STREQUAL ${CMAKE_CURRENT_SOURCE_DIR})
+	include(MakeTBZ2)
+	add_custom_target(dist COMMAND ${CMAKE_MAKE_PROGRAM} package_source)
 else()
 	# set parent variables as if it used find_package(testlib2)
 	set(LIBVARIANT_LIBRARIES Variant PARENT_SCOPE)

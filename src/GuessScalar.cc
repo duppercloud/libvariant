@@ -51,9 +51,13 @@ namespace libvariant {
 			memset(&guessregex, 0, sizeof(regex_t));
 			err = regcomp(&guessregex, match_string, REG_EXTENDED); 
 			if (err) {
-				fprintf(stderr, "Failed to compile the GuessRegex regular expression in libvariant,"
-					   " wish this was a compile error.\n");
-				abort();
+				std::vector<char> buffer(8192);
+				regerror(err, &guessregex, &buffer[0], buffer.size());
+				std::ostringstream oss;
+				oss << "libvariant library initialization failure: Failed to initialize type guessing regex with error: "
+					<< &buffer[0];
+				fputs(oss.str().c_str(), stderr);
+				throw std::runtime_error(oss.str());
 			}
 		}
 
@@ -61,11 +65,11 @@ namespace libvariant {
 		GuessRegex::~GuessRegex() {
 			regfree(&guessregex);
 		}
-		static GuessRegex guessregex;
 	}
 
 	void GuessScalar(const char *value, unsigned length, const char *anchor, const char *tag,
 		   	ParserImpl *p, ParserActions *action) {
+		static GuessRegex guessregex;
 		regmatch_t match[MATCH_MAX];
 		if (regexec(&guessregex.guessregex, value, MATCH_MAX, &match[0], 0) == 0) {
 			if (match[MATCH_NULL].rm_so != -1) {

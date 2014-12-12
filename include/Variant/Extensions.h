@@ -57,6 +57,36 @@ namespace libvariant {
 	/// \brief Updates 'base' with entries in 'update' recursively
 	void RUpdate( VariantRef base, const Variant &update );
 
+	/// Perform an operations on v according to RFC6901 and RFC6902.
+	// Note that JSON Pointer is ambiguous without the presence of a document.
+	// These function throw if the lookup fails because of incorrect types or
+	// on ambiguity.
+	// On return (or throw) the operation will have either succedded or no
+	// change will have been made.
+
+	/// Add data to v at the spot specified by pointer
+	void JSONPointerAdd(const std::string &pointer, VariantRef v, Variant data);
+	/// Remove the element in v at the spot specified by pointer
+	void JSONPointerRemove(const std::string &pointer, VariantRef v);
+	/// Replace the value at pointer with data, error if the location does not already exist
+	void JSONPointerReplace(const std::string &pointer, VariantRef v, Variant data);
+	/// Move the value from src to dst (equivalent to get(src), remove(src), add(dst)
+	void JSONPointerMove(const std::string &src, const std::string &dst, VariantRef v);
+	/// Copy the value from src to dst (equivalent to add(dst, get(src).Copy()))
+	void JSONPointerCopy(const std::string &src, const std::string &dst, VariantRef v);
+	/// Perform a lookup into v according to RFC6901, return a reference to the value at the location
+	VariantRef JSONPointerLookup(const std::string &pointer, VariantRef v);
+
+	std::string FormJSONPointer(const Path &path);
+
+	/// Perform a patch operation on v with the patch as described by diff according to RFC6902
+	// Returns true if the patch is applied and all tests pass,
+	// false if any tests failed and no patch is applied
+	std::pair<bool, std::string> JSONPatch(VariantRef v, const Variant &diff);
+
+	/// Create a diff suitable to give to JSONPatch to transform src into dst.
+	Variant JSONDiff(const Variant &src, const Variant &dst);
+
 } // namespace libvariant
 
 #endif /*#ifndef VARIANT_EXTENSIONS_H*/

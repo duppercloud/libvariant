@@ -144,12 +144,18 @@ namespace libvariant {
 			ParsePath(dpath, params.Get("data_path", VARIANT_PAYLOAD_DATA_PATH).AsString());
 			ParsePath(lpath, params.Get("length_path", VARIANT_PAYLOAD_LENGTH_PATH).AsString());
 		}
+		bool ignore_payload = params.Get("ignore_payload", false).AsBool();
+		uintmax_t payload_length = 0;
 
 		bool payload_exists = v.HasPath(dpath);
 		BlobPtr blob;
 		if (payload_exists) {
 			blob = v.GetPath(dpath).AsBlob();
+			payload_length = blob->GetTotalLength();
+		} else if (ignore_payload) {
+			payload_length = v.GetPath(lpath, 0).AsUnsigned();
 		}
+		payload_length = params.Get("payload_length", payload_length).AsUnsigned();
 
 
 		Emitter emitter = CreateEmitter(out, type, params);
@@ -157,7 +163,7 @@ namespace libvariant {
 		state.e = emitter;
 		state.len_end = lpath.end();
 		state.data_end = dpath.end();
-		state.payload_len = (payload_exists ? blob->GetTotalLength() : 0);
+		state.payload_len = payload_length;
 
 		emitter.BeginDocument();
 		PayloadEmit(v, lpath.begin(), true, dpath.begin(), true, state);
@@ -173,7 +179,7 @@ namespace libvariant {
 			written += out->Write(&buf[written], buf.size() - written);
 		}
 
-		if (payload_exists) {
+		if (payload_exists && !ignore_payload) {
 			unsigned num_slabs = blob->GetNumBuffers();
 			for (unsigned slab = 0; slab < num_slabs; ++slab) {
 				unsigned to_write = blob->GetLength(slab);

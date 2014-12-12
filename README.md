@@ -25,6 +25,17 @@ This class is a discriminating union that can contain one of the following value
  - Schema lookup can be set to use libcurl to fetch remote URLs.
  - A simple argument parsing (ArgParse) class that produces a Variant from a programs arguments.
  - Experimental [msgpack](http://msgpack.org/) serialization using [msgpack-c](https://github.com/msgpack/msgpack-c) (disabled by default).
+ - JSONPointer (RFC6901) and JSONPatch (RFC6902) implementations.
+
+### Changes for the 1.0.1 release
+
+ - Cleaned up static data initialization, will no long call abort.
+ - Fixed a bug related to proxy resolution when performing additional path resolution.
+ - Added an ignore_payload and payload_length parameter to the payload serializer helpers.
+ - Implemented proper JSONPointer lookup routines and changed the schema lookup to use them.
+ - Modified ArgParse so that positional argument can be specified in loaded configuration files.
+ - Added a make dist build target.
+ - Other minor fixes.
 
 ### Implementation details
 
@@ -39,6 +50,8 @@ value. This means that if you want a function that takes a non-const Variant as
 a parameter to be used as an output parameter, the function must take a
 VariantRef by value.  VariantRef can be constructed from a Variant as well, so
 such a function can take either a VariantRef or Variant.
+
+libvariant is [publicly hosted here](https://bitbucket.org/gallen/libvariant).
 
 Building
 --------

@@ -84,9 +84,26 @@ namespace libvariant {
 		return oss.str();
 	}
 
+	static inline std::string UnexpectedTypeErrorMessage(const std::vector<VariantDefines::Type_t> &expected,
+			VariantDefines::Type_t value) {
+		std::ostringstream oss;
+		oss << "Unexpected variant type " << value << " expected one of ";
+		for (unsigned i = 0; i < expected.size(); ++i) {
+			if (i != 0) { oss << ", "; }
+			oss << expected[i];
+		}
+		AddStackTrace(oss, 2);
+		return oss.str();
+	}
+
 	UnexpectedTypeError::UnexpectedTypeError(VariantDefines::Type_t expected, VariantDefines::Type_t value) throw()
 		: std::runtime_error(UnexpectedTypeErrorMessage(expected, value))
    	{}
+
+	UnexpectedTypeError::UnexpectedTypeError(const std::vector<VariantDefines::Type_t> &expected,
+		   	VariantDefines::Type_t value) throw()
+		: std::runtime_error(UnexpectedTypeErrorMessage(expected, value))
+	{}
 
 	static inline std::string UnableToConvertErrorMessage(VariantDefines::Type_t sourcetype,
 		   	const std::string &targettype) {

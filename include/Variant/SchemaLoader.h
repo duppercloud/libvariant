@@ -18,6 +18,9 @@
  * \author John Bridgman
  * \brief An advanced schema loader.
  */
+#ifndef VARIANT_SCHEMALOADER_H
+#define VARIANT_SCHEMALOADER_H
+#pragma once
 
 #include <Variant/Schema.h>
 
@@ -47,3 +50,4 @@ namespace libvariant {
 		std::vector< std::string > paths;
 	};
 }
+#endif

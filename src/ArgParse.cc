@@ -309,7 +309,8 @@ namespace libvariant {
 				throw std::runtime_error("ArgParse: Error attempting to add an option without"
 						" a short or long option.");
 			}
-			opt_iter i = options.insert(std::make_pair(id,
+			options.push_back(id);
+			optmap_iter i = option_map.insert(std::make_pair(id,
 						ArgParseOptImpl(this, id, path, shortOpt, longOpt, helptxt, action))).first;
 			if (!longOpt.empty()) {
 				longOpts.insert(std::make_pair(longOpt, id));
@@ -337,7 +338,11 @@ namespace libvariant {
 		}
 
 		ArgParseOptImpl *GetOpt(int id) {
-			return &options.find(id)->second;
+			return &option_map.find(id)->second;
+		}
+
+		const ArgParseOptImpl *GetOpt(int id) const {
+			return &option_map.find(id)->second;
 		}
 
 		ArgParseOptImpl *AddArgument(const std::string &keypath, const std::string &helptxt,
@@ -346,15 +351,17 @@ namespace libvariant {
 			ParsePath(path, keypath);
 			int sopt = 0;
 			int id = CheckExisting(path, sopt, "");
-			arguments.push_back(ArgParseOptImpl(this, id, path, 0, "", helptxt, action));
-			ArgParseOptImpl *ret = &arguments.back();
+			arguments.push_back(id);
+			optmap_iter i = option_map.insert(std::make_pair(id,
+					ArgParseOptImpl(this, id, path, 0, "", helptxt, action)
+						)).first;
 			paths.insert(std::make_pair(PathString(path), id));
-			ret->Init(Variant().Set("maxArgs", 1).Set("minArgs", 1));
-			return ret;
+			i->second.Init(Variant().Set("maxArgs", 1).Set("minArgs", 1));
+			return &i->second;
 		}
 
 		ArgParseOptImpl *At(unsigned arg_index) {
-			return &arguments.at(arg_index);
+			return GetOpt(arguments.at(arg_index));
 		}
 
 		ArgParseGroupImpl *GetGroup(const std::string &name) {
@@ -419,15 +426,17 @@ namespace libvariant {
 		std::string description;
 		std::string epilog;
 		int option_count;
-		std::map<int, ArgParseOptImpl> options;
-		typedef std::map<int, ArgParseOptImpl>::iterator opt_iter;
-		typedef std::map<int, ArgParseOptImpl>::const_iterator const_opt_iter;
+		std::map<int, ArgParseOptImpl> option_map;
+		typedef std::map<int, ArgParseOptImpl>::iterator optmap_iter;
+		std::vector<int> options;
+		typedef std::vector<int>::iterator opt_iter;
+		typedef std::vector<int>::const_iterator const_opt_iter;
 		std::map<std::string, int> longOpts;
 		std::map<char, int> shortOpts;
 		std::map<std::string, int> paths;
-		std::vector<ArgParseOptImpl> arguments;
-		typedef std::vector<ArgParseOptImpl>::iterator arg_iter;
-		typedef std::vector<ArgParseOptImpl>::const_iterator const_arg_iter;
+		std::vector<int> arguments;
+		typedef std::vector<int>::iterator arg_iter;
+		typedef std::vector<int>::const_iterator const_arg_iter;
 
 		std::map<std::string, ArgParseGroupImpl> groups;
 		typedef std::map<std::string, ArgParseGroupImpl>::iterator group_iter;
@@ -953,7 +962,7 @@ namespace libvariant {
 		try {
 			std::string shortOpts;
 			std::vector<struct option> longOpts;
-			for (opt_iter i(options.begin()), e(options.end()); i != e; ++i) {
+			for (optmap_iter i(option_map.begin()), e(option_map.end()); i != e; ++i) {
 				ArgParseOptImpl &o = i->second;
 				int id = i->first;
 				if (o.shortOpt > 0) {
@@ -983,8 +992,8 @@ namespace libvariant {
 				int c = getopt_long(argc, argv, shortOpts.c_str(), &longOpts[0], 0);
 				if (c == -1) { break; }
 				if (c == '?') { PrintHelp(false); }
-				opt_iter o = options.find(c);
-				if (o == options.end()) { PrintHelp(false); }
+				optmap_iter o = option_map.find(c);
+				if (o == option_map.end()) { PrintHelp(false); }
 				ArgParseOptImpl &opt = o->second;
 				opt.HandleOption(optarg);
 			}
@@ -992,23 +1001,19 @@ namespace libvariant {
 			// Handle arguments
 			unsigned minimum_arguments = 0;
 			for (arg_iter i(arguments.begin()), e(arguments.end()); i != e; ++i) {
-				unsigned minarg; i->opt.GetInto(minarg, "minArgs", 0u);
+				ArgParseOptImpl *o = GetOpt(*i);
+				unsigned minarg; o->opt.GetInto(minarg, "minArgs", 0u);
 				if (minarg > 0) { minimum_arguments += minarg; }
 				else { break; }
 			}
 			unsigned numarg = argc - optind;
-			if (numarg < minimum_arguments) {
-				std::ostringstream oss;
-				oss << "Error parsing arguments\nNot enough arguments specified, "
-					<< numarg << " given, minimum: " << minimum_arguments;
-				throw std::runtime_error(oss.str());
-			}
 			unsigned index = optind;
 			unsigned maximum_arguments = 0;
 			for (arg_iter i(arguments.begin()), e(arguments.end()); i != e; ++i) {
 				unsigned minarg, maxarg;
-				i->opt.GetInto(minarg, "minArgs", 0u);
-				i->opt.GetInto(maxarg, "maxArgs", 0u);
+				ArgParseOptImpl *o = GetOpt(*i);
+				o->opt.GetInto(minarg, "minArgs", 0u);
+				o->opt.GetInto(maxarg, "maxArgs", 0u);
 				if (maxarg != 0) { maximum_arguments += maxarg; }
 				else { maximum_arguments = 0; }
 				if (i + 1 == e && maxarg != 0 && argc - index > maxarg) {
@@ -1019,28 +1024,17 @@ namespace libvariant {
 				} else {
 					unsigned num = 0;
 					while (index < (unsigned)argc && (maxarg == 0 || num < maxarg)) {
-						i->HandleOption(argv[index]);
+						o->HandleOption(argv[index]);
 						++index;
 						++num;
 					}
-					if (num < minarg) {
-						std::ostringstream oss;
-						//oss << "Something is wrong, the test earlier did not catch this case.\n";
-						//oss << OptName(cmd.opt) << ": num: " << num << " minarg: " << minarg
-						//    << " maxarg: " << maxarg << "\n";
-						//oss << "index: " << index << " arg left: " << argc - index << "\n";
-						oss << "Error parsing arguments\nNot enough arguments specified, "
-							<< numarg << " given, minimum: " << minimum_arguments;
-						throw std::runtime_error(oss.str());
-					}
-					i->FinalizeResult();
 				}
 			}
 			if (index < (unsigned)argc) {
 				throw std::runtime_error("Error parsing arguments\nExtra arguments given.");
 			}
 
-			for (opt_iter i(options.begin()), e(options.end()); i != e; ++i) {
+			for (optmap_iter i(option_map.begin()), e(option_map.end()); i != e; ++i) {
 				i->second.FinalizeResult();
 			}
 			for (group_iter i(groups.begin()), e(groups.end()); i != e; ++i) {
@@ -1060,11 +1054,8 @@ namespace libvariant {
 
 	Variant ArgParseImpl::FormResult() {
 		Variant ret = Variant::MapType;
-		for (opt_iter i(options.begin()), e(options.end()); i != e; ++i) {
+		for (optmap_iter i(option_map.begin()), e(option_map.end()); i != e; ++i) {
 			i->second.FormResult(ret);
-		}
-		for (arg_iter i(arguments.begin()), e(arguments.end()); i != e; ++i) {
-			i->FormResult(ret);
 		}
 		return ret;
 	}
@@ -1080,7 +1071,7 @@ namespace libvariant {
 	void ArgParseImpl::PrintHelp(bool advanced) const {
 		std::cerr << title << ": [options]";
 		for (const_arg_iter i(arguments.begin()), e(arguments.end()); i != e; ++i) {
-			const ArgParseOptImpl &arg = *i;
+			const ArgParseOptImpl &arg = *GetOpt(*i);
 			unsigned minArgs, maxArgs;
 			arg.opt.GetInto(minArgs, "minArgs", 0u);
 			arg.opt.GetInto(maxArgs, "maxArgs", 0u);
@@ -1110,7 +1101,8 @@ namespace libvariant {
 			std::cerr << "Arguments:\n";
 		}
 		for (const_arg_iter i(arguments.begin()), e(arguments.end()); i != e; ++i) {
-			i->HelpLine(std::cerr, false, true, 1);
+			const ArgParseOptImpl &arg = *GetOpt(*i);
+			arg.HelpLine(std::cerr, false, true, 1);
 		}
 		if (!options.empty()) {
 			std::cerr << "Options:\n";
@@ -1120,7 +1112,8 @@ namespace libvariant {
 
 		for (const_opt_iter i(options.begin()), e(options.end()); i != e; ++i) {
 			bool in_group = false;
-			std::set<std::string>::const_iterator g(i->second.groups.begin()), gend(i->second.groups.end());
+			const ArgParseOptImpl &opt = *GetOpt(*i);
+			std::set<std::string>::const_iterator g(opt.groups.begin()), gend(opt.groups.end());
 			for (; g != gend; ++g) {
 				const_group_iter group_i = groups.find(*g);
 				if (group_i == groups.end()) {
@@ -1137,16 +1130,16 @@ namespace libvariant {
 						group.title = gimpl->title;
 						group.description = gimpl->description;
 						group.advanced = gimpl->advanced;
-						group.members.push_back(&i->second);
+						group.members.push_back(&opt);
 						groupings[*g] = group;
 					} else {
-						giter->second.members.push_back(&i->second);
+						giter->second.members.push_back(&opt);
 					}
 					break;
 				}
 			}
 			if (!in_group) {
-				ungrouped.push_back(&i->second);
+				ungrouped.push_back(&opt);
 			}
 		}
 		for (std::vector<const ArgParseOptImpl*>::iterator i(ungrouped.begin()), e(ungrouped.end());
@@ -1274,10 +1267,10 @@ namespace libvariant {
 
 	void ArgParseImpl::GenerateSchema(VariantRef schema) const {
 		for (const_opt_iter i(options.begin()), e(options.end()); i != e; ++i) {
-			i->second.GenerateSchema(schema);
+			GetOpt(*i)->GenerateSchema(schema);
 		}
 		for (const_arg_iter i(arguments.begin()), e(arguments.end()); i != e; ++i) {
-			i->GenerateSchema(schema);
+			GetOpt(*i)->GenerateSchema(schema);
 		}
 		for (const_group_iter i(groups.begin()), e(groups.end()); i != e; ++i) {
 			i->second.GenerateSchema(schema);
@@ -1290,10 +1283,12 @@ namespace libvariant {
 		desc.Set("description", description);
 		desc.Set("epilog", epilog);
 		for (const_opt_iter i(options.begin()), e(options.end()); i != e; ++i) {
-			desc["options"].Set(PathString(i->second.path), i->second.GetDescription());
+			const ArgParseOptImpl *opt = GetOpt(*i);
+			desc["options"].Set(PathString(opt->path), opt->GetDescription());
 		}
 		for (const_arg_iter i(arguments.begin()), e(arguments.end()); i != e; ++i) {
-			desc["arguments"].Append(i->GetDescription());
+			const ArgParseOptImpl *opt = GetOpt(*i);
+			desc["arguments"].Append(opt->GetDescription());
 		}
 		for (const_group_iter i(groups.begin()), e(groups.end()); i != e; ++i) {
 			desc["groups"].Set(i->first, i->second.GetDescription());

@@ -23,6 +23,7 @@
 #include <Variant/VariantDefines.h>
 #include <stdexcept>
 #include <iosfwd>
+#include <vector>
 namespace libvariant {
 
 	/// \brief Exception thrown when a key does not exist.
@@ -41,6 +42,7 @@ namespace libvariant {
 	class UnexpectedTypeError : public std::runtime_error {
 	public:
 		UnexpectedTypeError(VariantDefines::Type_t expected, VariantDefines::Type_t value) throw();
+		UnexpectedTypeError(const std::vector<VariantDefines::Type_t> &expected, VariantDefines::Type_t value) throw();
 	};
 
 	/// \brief Exception thrown when a function cannot convert the Variant to an acceptable type for the routine.

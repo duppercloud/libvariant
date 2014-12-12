@@ -24,6 +24,9 @@
 #include <Variant/Variant.h>
 #include <Variant/Extensions.h>
 #include <Variant/Path.h>
+#include <stdlib.h>
+#include <ctype.h>
+#include <set>
 
 using namespace std;
 
@@ -273,5 +276,521 @@ namespace libvariant {
 		default:
 			base = update.Copy();
 		}
+	}
+
+	std::string JSONPointerUnescape(const std::string &fragment) {
+		std::string ret;
+		const char *c = fragment.c_str();
+		const char *e = c + fragment.size();
+		while (c != e) {
+			switch (*c) {
+			case '~':
+				++c;
+				if (c != e) {
+					if (*c == '0') {
+						ret.append("~");
+					} else if (*c == '1') {
+						ret.append("/");
+					} else {
+						ret.append("~");
+						ret.append(c, 1);
+					}
+					++c;
+				}
+				break;
+			default:
+				ret.append(c, 1);
+				++c;
+				break;
+			}
+		}
+		return ret;
+	}
+
+	enum Operations_e {
+		OP_ADD,
+		OP_REMOVE,
+		OP_TEST,
+		OP_GET
+	};
+
+	struct Operation_t {
+		Operation_t() {}
+		Operation_t(Operations_e o, const std::string &p)
+		   	: op(o), success(false), guess(false), replaced(false), pointer(p) {}
+
+		Operations_e op;
+		Path path; // path that modification /starts at/
+		Variant value;
+		Variant old_value;
+		bool success;
+		bool guess;
+		bool replaced;
+		std::string pointer;
+	};
+
+	static bool IsIndex(const std::string &str, uintmax_t &index) {
+		const char *b = str.c_str();
+		char *e = 0;
+		unsigned long long v = strtoull(b, &e, 10);
+		if (e == b) { return false; }
+		while (e != 0 && *e != '\0' && isspace(*e)) { ++e; }
+		if (e == 0 || *e != '\0') { return false; }
+		index = v;
+		return true;
+	}
+
+	VariantRef JSONPointerOp(const std::string &pointer, VariantRef v, Operation_t &op) {
+		if (pointer.empty()) {
+			switch (op.op) {
+			case OP_ADD:
+				if (v.Exists()) {
+					op.replaced = true;
+					op.old_value = v;
+				}
+				v = op.value;
+				op.success = true;
+				return v;
+			case OP_REMOVE:
+				op.value = v;
+				v = Variant::NullType;
+				op.success = true;
+				return v;
+			case OP_TEST:
+				op.success = (v == op.value);
+				return v;
+			case OP_GET:
+				op.value = v;
+				op.success = true;
+				return v;
+			}
+		}
+		if (pointer[0] != '/') {
+			throw std::runtime_error("JSON Pointer is required to start with '/'");
+		}
+		std::string::size_type nindex =  pointer.find('/', 1);
+		std::string component = JSONPointerUnescape(pointer.substr(1, nindex - 1));
+		bool is_last = (nindex >= pointer.size());
+		if (!v.Exists()) {
+			if (op.guess) {
+				// Best guess
+				uintmax_t index = 0;
+				if (IsIndex(component, index)) {
+					return JSONPointerOp(pointer.substr(nindex), v.At(index), op);
+				} else {
+					return JSONPointerOp(pointer.substr(nindex), v.At(component), op);
+				}
+			} else {
+				throw std::runtime_error("Unable to resolve the JSON Pointer.");
+			}
+		} else if (v.IsMap()) {
+			op.path.push_back(component);
+			if (is_last) {
+				switch (op.op) {
+				case OP_ADD:
+					if (v.Contains(component)) {
+						op.replaced = true;
+						op.old_value = v.Get(component);
+					}
+					v.Set(component, op.value);
+					op.success = true;
+					return v.At(component);
+				case OP_REMOVE:
+					op.value = v.At(component);
+					v.Erase(component);
+					op.success = true;
+					return v.At(component);
+				case OP_TEST:
+					{
+						VariantRef ret = v.At(component);
+						op.success = (ret == op.value);
+						return ret;
+					}
+				case OP_GET:
+					{
+						VariantRef ret = v.At(component);
+						op.value = ret;
+						op.success = true;
+						return ret;
+					}
+				}
+			} else {
+				return JSONPointerOp(pointer.substr(nindex), v.At(component), op);
+			}
+		} else if (v.IsList()) {
+			if (is_last && component == "-") {
+				op.path.push_back(v.Size());
+				if (op.op == OP_ADD) {
+					v.Append(op.value);
+					op.success = true;
+					return v.At(v.Size());
+				}
+				throw std::runtime_error("Attempting to reference past the end of an array");
+			}
+			uintmax_t index = 0;
+			if (!IsIndex(component, index)) {
+				throw std::runtime_error("Attempting to index an array with a string");
+			}
+			op.path.push_back(index);
+			if (is_last) {
+				switch (op.op) {
+				case OP_ADD:
+					if (v.Contains(index)) {
+						op.old_value = v.Get(index);
+						op.replaced = true;
+					}
+					v.AsList().insert(v.ListBegin()+index, op.value);
+					op.success = true;
+					return v.At(index);
+				case OP_REMOVE:
+					op.value = v.At(component);
+					v.Erase(index);
+					op.success = true;
+					return v.At(index);
+				case OP_TEST:
+					{
+						VariantRef ret = v.At(index);
+						op.success = (ret == op.value);
+						return ret;
+					}
+				case OP_GET:
+					{
+						VariantRef ret = v.At(index);
+						op.value = ret;
+						op.success = true;
+						return ret;
+					}
+				}
+			} else {
+				return JSONPointerOp(pointer.substr(nindex), v.At(index), op);
+			}
+		}
+		std::ostringstream oss;
+		oss << "The JSON Pointer does not match the document, "
+			<< v.GetType() << " is not a indexable type";
+		throw std::runtime_error(oss.str());
+	}
+
+	void JSONPointerAdd(const std::string &pointer, VariantRef v, Variant data) {
+		Operation_t op(OP_ADD, pointer);
+		op.value = data;
+		try {
+			JSONPointerOp(op.pointer, v, op);
+		} catch (const std::exception &e) {
+			std::ostringstream oss;
+			oss << "Error adding a value with the JSON Pointer \""
+				<< op.pointer << "\" at path \""
+				<< PathString(op.path) << "\": " << e.what();
+			throw std::runtime_error(oss.str());
+		}
+	}
+
+	void JSONPointerRemove(const std::string &pointer, VariantRef v) {
+		Operation_t op(OP_REMOVE, pointer);
+		try {
+			JSONPointerOp(op.pointer, v, op);
+		} catch (const std::exception &e) {
+			std::ostringstream oss;
+			oss << "Error removing a value with the JSON Pointer \""
+				<< op.pointer << "\" at path \""
+				<< PathString(op.path) << "\": " << e.what();
+			throw std::runtime_error(oss.str());
+		}
+	}
+
+	void JSONPointerReplace(const std::string &pointer, VariantRef v, Variant data) {
+		Operation_t op(OP_GET, pointer);
+		try {
+			if (JSONPointerOp(op.pointer, v, op).Exists()) {
+				v.SetPath(op.path, data);
+			} else {
+				throw std::runtime_error("The target does not exist");
+			}
+		} catch (const std::exception &e) {
+			std::ostringstream oss;
+			oss << "Error replacing a value with the JSON Pointer \""
+				<< op.pointer << "\" at path \""
+				<< PathString(op.path) << "\": " << e.what();
+			throw std::runtime_error(oss.str());
+		}
+	}
+
+	void JSONPointerMove(const std::string &src, const std::string &dst, VariantRef v) {
+		Operation_t op(OP_REMOVE, src);
+		try {
+			JSONPointerOp(op.pointer, v, op);
+			Variant data = op.value;
+			Path path = op.path;
+			try {
+				op = Operation_t(OP_ADD, dst);
+				op.value = data;
+				JSONPointerOp(op.pointer, v, op);
+			} catch (const std::exception &e) {
+				v.SetPath(path, data);
+				throw e;
+			}
+		} catch (const std::exception &e) {
+			std::ostringstream oss;
+			oss << "Error moving a value with the JSON Pointer \""
+				<< op.pointer << "\" at path \""
+				<< PathString(op.path) << "\": " << e.what();
+			throw std::runtime_error(oss.str());
+		}
+	}
+
+	void JSONPointerCopy(const std::string &src, const std::string &dst, VariantRef v) {
+		Operation_t op(OP_GET, src);
+		try {
+			VariantRef s = JSONPointerOp(op.pointer, v, op);
+			if (s.Exists()) {
+				op = Operation_t(OP_ADD, dst);
+				op.value = s.Copy();
+				JSONPointerOp(op.pointer, v, op);
+			} else {
+				throw std::runtime_error("The src does not exist");
+			}
+		} catch (const std::exception &e) {
+			std::ostringstream oss;
+			oss << "Error copying a value with the JSON Pointer \""
+				<< op.pointer << "\" at path \""
+				<< PathString(op.path) << "\": " << e.what();
+			throw std::runtime_error(oss.str());
+		}
+	}
+
+	VariantRef JSONPointerLookup(const std::string &pointer, VariantRef v) {
+		Operation_t op(OP_GET, pointer);
+		try {
+			return JSONPointerOp(op.pointer, v, op);
+		} catch (const std::exception &e) {
+			std::ostringstream oss;
+			oss << "Error looking up a value with the JSON Pointer \""
+				<< op.pointer << "\" at path \""
+				<< PathString(op.path) << "\": " << e.what();
+			throw std::runtime_error(oss.str());
+		}
+	}
+
+	std::string FormJSONPointer(const Path &path) {
+		std::ostringstream ret;
+		for (Path::const_iterator i(path.begin()), e(path.end()); i != e; ++i) {
+			if (i->IsNumber()) {
+				ret << "/" << i->AsUnsigned();
+			} else {
+				ret << "/" << i->AsString();
+			}
+		}
+		return ret.str();
+	}
+
+	struct Patch_t {
+		Patch_t(Operations_e o, Path p, Variant v) : op(o), path(p), value(v) {}
+		Patch_t(Operations_e o, Path p) : op(o), path(p) {}
+		Operations_e op;
+		Path path;
+		Variant value;
+	};
+
+	void JSONPatchUndo(VariantRef v, std::deque<Patch_t> *undo) {
+		while (!undo->empty()) {
+			const Patch_t &p = undo->back();
+			switch (p.op) {
+			case OP_ADD:
+				{
+					Path path = p.path;
+					if (path.size() > 0) {
+						PathElement elem = path.back();
+						path.pop_back();
+						VariantRef r = v.AtPath(path);
+						if (r.IsList()) {
+							r.AsList().insert(r.ListBegin()+elem.AsUnsigned(), p.value);
+						} else {
+							r.Set(elem.AsString(), p.value);
+						}
+					} else {
+						v = p.value;
+					}
+				}
+				break;
+			case OP_REMOVE:
+				v.ErasePath(p.path);
+				break;
+			case OP_TEST:
+			case OP_GET:
+				throw std::runtime_error("Unable to perform operation here");
+			}
+			undo->pop_back();
+		}
+	}
+
+
+	bool JSONPatchOp(VariantRef v, const Variant &diff, std::deque<Patch_t> *undo) {
+		std::string oper = diff.Get("op").AsString();
+		Operation_t op;
+		try {
+			if (oper == "add") {
+				op = Operation_t(OP_ADD, diff.Get("path").AsString());
+				op.value = diff.Get("value");
+				JSONPointerOp(op.pointer, v, op);
+				if (op.replaced) {
+					undo->push_back(Patch_t(OP_ADD, op.path, op.old_value));
+				} else {
+					undo->push_back(Patch_t(OP_REMOVE, op.path));
+				}
+				return op.success;
+			} else if (oper == "remove") {
+				op = Operation_t(OP_REMOVE, diff.Get("path").AsString());
+				JSONPointerOp(op.pointer, v, op);
+				undo->push_back(Patch_t(OP_ADD, op.path, op.value));
+				return op.success;
+			} else if (oper == "replace") {
+				op = Operation_t(OP_GET, diff.Get("path").AsString());
+				VariantRef r = JSONPointerOp(op.pointer, v, op);
+				if (r.Exists()) {
+					r = diff.Get("value");
+				} else {
+					return false;
+				}
+				undo->push_back(Patch_t(OP_ADD, op.path, op.value));
+				return op.success;
+			} else if (oper == "move") {
+				op = Operation_t(OP_REMOVE, diff.Get("from").AsString());
+				JSONPointerOp(op.pointer, v, op);
+				Variant data = op.value;
+				undo->push_back(Patch_t(OP_ADD, op.path, data));
+				op = Operation_t(OP_ADD, diff.Get("path").AsString());
+				op.value = data;
+				JSONPointerOp(op.pointer, v, op);
+				if (op.replaced) {
+					undo->push_back(Patch_t(OP_ADD, op.path, op.old_value));
+				} else {
+					undo->push_back(Patch_t(OP_REMOVE, op.path));
+				}
+				return op.success;
+			} else if (oper == "copy") {
+				op = Operation_t(OP_GET, diff.Get("from").AsString());
+				JSONPointerOp(op.pointer, v, op);
+				Variant data = op.value;
+				op = Operation_t(OP_ADD, diff.Get("path").AsString());
+				op.value = data;
+				JSONPointerOp(op.pointer, v, op);
+				if (op.replaced) {
+					undo->push_back(Patch_t(OP_ADD, op.path, op.old_value));
+				} else {
+					undo->push_back(Patch_t(OP_REMOVE, op.path));
+				}
+				return op.success;
+			} else if (oper == "test") {
+				op = Operation_t(OP_TEST, diff.Get("path").AsString());
+				op.value = diff.Get("value");
+				JSONPointerOp(op.pointer, v, op);
+				return op.success;
+			}
+		} catch (const std::exception &e) {
+			std::ostringstream oss;
+			oss << "Error executing patch op \"" << oper << "\" for pointer: " << op.pointer
+				<< " stopped at: " << PathString(op.path) << "\n\twhat:\n" << e.what();
+			throw std::runtime_error(oss.str());
+		}
+		throw std::runtime_error("Unknown JSON Patch operation: " + oper);
+	}
+
+	std::pair<bool, std::string> JSONPatch(VariantRef v, const Variant &diff) {
+		std::deque<Patch_t> undo;
+		try {
+			bool success = true;
+			if (diff.IsList()) {
+				Variant::ConstListIterator i(diff.ListBegin()), e(diff.ListEnd());
+				for (;i != e && success; ++i) {
+					success = JSONPatchOp(v, *i, &undo);
+				}
+			} else {
+				success = JSONPatchOp(v, diff, &undo);
+			}
+			std::string msg;
+			if (!success) {
+				JSONPatchUndo(v, &undo);
+				msg = "Failure";
+			}
+			return std::make_pair(success, msg);
+		} catch (const std::exception &e) {
+			JSONPatchUndo(v, &undo);
+			return std::make_pair(false, std::string(e.what()));
+		}
+	}
+
+	void JSONDiffRef(VariantRef src, VariantRef dst, VariantRef diff, Path &path) {
+		if (!dst.Exists()) {
+			diff.Append(
+					Variant()
+					.Set("op", "remove")
+					.Set("path", FormJSONPointer(path))
+					);
+			return;
+		}
+		if (!src.Exists()) {
+			diff.Append(
+					Variant()
+					.Set("op", "add")
+					.Set("path", FormJSONPointer(path))
+					.Set("value", dst)
+					);
+			return;
+		}
+		if (src.GetType() != dst.GetType()) {
+			diff.Append(
+					Variant()
+					.Set("op", "replace")
+					.Set("path", FormJSONPointer(path))
+					.Set("value", dst)
+					);
+			return;
+		}
+		if (src != dst) {
+			switch (src.GetType()) {
+			case Variant::ListType:
+				{
+					uintmax_t len = std::max<uintmax_t>(src.Size(), dst.Size());
+					for (uintmax_t i = 0; i < len; ++i) {
+						path.push_back(PathElement(i));
+							JSONDiffRef(src.At(i), dst.At(i), diff, path);
+						path.pop_back();
+					}
+				}
+				break;
+			case Variant::MapType:
+				{
+					std::set<std::string> keys;
+					Variant::ConstMapIterator i, e;
+					for (i = dst.MapBegin(), e = dst.MapEnd(); i != e; ++i) {
+						keys.insert(i->first);
+					}
+					for (i = src.MapBegin(), e = src.MapEnd(); i != e; ++i) {
+						keys.insert(i->first);
+					}
+					for (std::set<std::string>::iterator i(keys.begin()), e(keys.end()); i != e; ++i) {
+						path.push_back(PathElement(*i));
+						JSONDiffRef(src.At(*i), dst.At(*i), diff, path);
+						path.pop_back();
+					}
+				}
+				break;
+			default:
+				diff.Append(
+						Variant()
+						.Set("op", "replace")
+						.Set("path", FormJSONPointer(path))
+						.Set("value", dst)
+						);
+				break;
+			}
+		}
+	}
+
+	Variant JSONDiff(const Variant &src, const Variant &dst) {
+		Path path;
+		Variant diff = Variant::ListType;
+		JSONDiffRef(src, dst, diff, path);
+		return diff;
 	}
 }

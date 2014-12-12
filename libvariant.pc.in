@@ -4,7 +4,7 @@ libdir=@INSTALL_LIB_DIR@
 includedir=@INSTALL_INCLUDE_DIR@
 
 Name: libvariant
-Description: A little library that contains a variant implementation with several serializer and deserializer routines
+Description: Scripting language like variable (Variant) in C++ with serializing, deserializing, schema and other features.
 Version: @VARIANT_VERSION@
 Libs: -L${libdir} -lVariant
 Cflags: -I${includedir}
